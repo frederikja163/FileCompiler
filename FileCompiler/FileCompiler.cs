@@ -150,25 +150,40 @@ internal sealed class FileCompiler
         string command = match.Groups["command"].Captures.First().Value;
         string[] args = match.Groups["param"].Captures.Select(c => c.Value).ToArray();
 
-        return LoadFile(Path.Combine(inDir, command), args);
+        string path = Path.Combine(inDir, command);
+        if (File.Exists(path))
+        {
+            return LoadFile(path, args);
+        }
+        if (_options.Methods != null)
+        {
+            return LoadFile(Path.Combine(_options.Methods, command), args);
+            
+        }
+        Console.Error.WriteLine($"Command not expanded since it could not be found {match.Value}. {inPath}#{match.Index}");
+        return match.Value;
     }
 
     internal string LoadFile(string path, string[] args)
     {
         IEnumerable<string> lines = File.ReadAllLines(path).Select(l => _paramRegex.Replace(l, match =>
         {
-            if (match.Groups["param"].Captures.Count != 1)
+            if (match.Groups["param"].Captures.Count < 1)
             {
                 Console.Error.WriteLine($"No parameter index found: {path}#{match.Index}");
                 return match.Value;
             }
 
-            if (!int.TryParse(match.Groups.Values.Skip(1).First().Value, out int paramIndex))
+            if (!int.TryParse(match.Groups["param"].Captures.First().Value, out int paramIndex))
             {
                 Console.Error.WriteLine("Param was not a valid integer.");
                 return match.Value;
             }
 
+            if (paramIndex >= args.Length)
+            {
+                return "";
+            }
             return args[paramIndex];
         }));
 
