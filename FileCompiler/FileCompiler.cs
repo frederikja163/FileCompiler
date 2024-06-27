@@ -111,19 +111,14 @@ internal sealed class FileCompiler
         {
             File.Delete(outPath);
         }
-
-        IEnumerable<string> lines = File.ReadLines(inPath).Select(l =>
-        {
-            l = _fileRegex.Replace(l, m => ExpandCommand(inPath, m));
-            l = _lineRegex.Replace(l, m => ExpandCommand(inPath, m).ReplaceLineEndings(""));
-            return l;
-        });
-
+        
         if (!Directory.Exists(outDir))
         {
             Directory.CreateDirectory(outDir);
         }
-        File.WriteAllText(outPath, string.Join(Environment.NewLine, lines));
+        
+        string str = ReadExpandedFile(inPath, []);
+        File.WriteAllText(outPath, str);
     }
 
     internal string GetOutPath(string inPath)
@@ -136,6 +131,18 @@ internal sealed class FileCompiler
         }
         string outPath = Path.Combine(_options.Out, relativePath);
         return outPath;
+    }
+
+    internal string ReadExpandedFile(string inPath, string[] args)
+    {
+        IEnumerable<string> lines = File.ReadLines(inPath).Select(l =>
+        {
+            l = _lineRegex.Replace(l, m => ExpandCommand(inPath, m).ReplaceLineEndings(""));
+            l = _fileRegex.Replace(l, m => ExpandCommand(inPath, m));
+            l = _paramRegex.Replace(l, m => ExpandParameter(inPath, args, m));
+            return l;
+        });
+        return string.Join(Environment.NewLine, lines);
     }
 
     internal string ExpandCommand(string inPath, Match match)
@@ -153,40 +160,38 @@ internal sealed class FileCompiler
         string path = Path.Combine(inDir, command);
         if (File.Exists(path))
         {
-            return LoadFile(path, args);
+            return ReadExpandedFile(path, args);
         }
         if (_options.Methods != null)
         {
-            return LoadFile(Path.Combine(_options.Methods, command), args);
-            
+            path = Path.Combine(_options.Methods, command);
+            if (File.Exists(path))
+            {
+                return ReadExpandedFile(path, args);
+            }
         }
         Console.Error.WriteLine($"Command not expanded since it could not be found {match.Value}. {inPath}#{match.Index}");
         return match.Value;
     }
 
-    internal string LoadFile(string path, string[] args)
+    internal string ExpandParameter(string inPath, string[] args, Match match)
     {
-        IEnumerable<string> lines = File.ReadAllLines(path).Select(l => _paramRegex.Replace(l, match =>
+        if (match.Groups["param"].Captures.Count < 1)
         {
-            if (match.Groups["param"].Captures.Count < 1)
-            {
-                Console.Error.WriteLine($"No parameter index found: {path}#{match.Index}");
-                return match.Value;
-            }
+            Console.Error.WriteLine($"No parameter index found: {inPath}#{match.Index}");
+            return match.Value;
+        }
 
-            if (!int.TryParse(match.Groups["param"].Captures.First().Value, out int paramIndex))
-            {
-                Console.Error.WriteLine("Param was not a valid integer.");
-                return match.Value;
-            }
+        if (!int.TryParse(match.Groups["param"].Captures.First().Value, out int paramIndex))
+        {
+            Console.Error.WriteLine("Param was not a valid integer.");
+            return match.Value;
+        }
 
-            if (paramIndex >= args.Length)
-            {
-                return "";
-            }
-            return args[paramIndex];
-        }));
-
-        return string.Join(Environment.NewLine, lines);
+        if (paramIndex >= args.Length)
+        {
+            return "";
+        }
+        return args[paramIndex];
     }
 }
